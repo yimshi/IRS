@@ -1,0 +1,19 @@
+Package: IRS
+Title: Iterative Reference Selection for Microbiome Normalization
+Version: 0.1.0
+Authors@R: 
+    person("Yiming", "Shi", , "yimingshi@wustl.edu", role = c("aut", "cre"),
+           comment = c(ORCID = "0000-0001-7525-6471"))
+Description: Provides a robust iterative algorithm for selecting reference taxa 
+    in microbiome data analysis. It combines Kendall's rank correlation and 
+    robust Poisson regression with sandwich variance estimators to identify 
+    taxa that are stable across experimental conditions, facilitating 
+    bias-reduced normalization.
+License: MIT + file LICENSE
+Encoding: UTF-8
+LazyData: true
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.3
+Imports: 
+    fastglm (>= 0.0.3),
+    stats
