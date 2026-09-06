@@ -1,214 +1,257 @@
 #' Iterative Reference Selection (IRS) for Microbiome Data
 #'
-#' @description
-#' This function implements the Iterative Reference Selection (IRS) algorithm.
-#' It identifies a stable set of reference taxa that are not associated with
-#' the predictor of interest, which can then be used for normalization in
-#' downstream differential abundance analysis.
+#' Identifies a stable set of reference taxa that are not associated with the
+#' predictor of interest. The returned logical vector can be used directly by
+#' existing code; [fit_irs()] provides the richer interface used by downstream
+#' adapters.
 #'
-#' @details
-#' The selection process is an iterative procedure that combines two robust
-#' statistical filters:
-#' \itemize{
-#'   \item \strong{Kendall's Rank Correlation}: A non-parametric test to assess
-#'   monotonic relationships on normalized abundances.
-#'   \item \strong{Robust Poisson GLM}: A Generalized Linear Model with sandwich
-#'   (HC3) variance estimators to account for overdispersion and potential
-#'   model misspecification in count data.
-#' }
-#' Convergence is achieved when the proportion of change in the reference set
-#' falls below the specified \code{tolerance}.
+#' @param otu_tab_sim Numeric matrix of counts with taxa in rows and samples in
+#'   columns.
+#' @param meta_dat Data frame containing one row per sample.
+#' @param predictor Name of the primary predictor in `meta_dat`.
+#' @param max_iter Maximum number of iterations.
+#' @param tolerance Convergence threshold for the recent mean proportion of
+#'   reference-set changes.
+#' @param quantile_range Two probabilities defining the abundance range used to
+#'   seed the initial reference set.
+#' @param p_threshold Taxa with both IRS screening p-values greater than or
+#'   equal to this value remain in the reference set.
+#' @param convergence_window Number of recent iterations used for convergence.
+#' @param verbose Print iteration progress.
+#' @param seed Optional random seed retained for reproducible workflows.
+#' @param kendall_transform Transformation used before the Kendall screen.
+#' @param initial_ref Optional logical vector or character vector of taxa names
+#'   used to seed the first iteration.
 #'
-#' @param otu_tab_sim A numeric \code{matrix} of taxon counts (taxa as rows,
-#' samples as columns).
-#' @param meta_dat A \code{data.frame} containing sample metadata.
-#' @param predictor A \code{string} specifying the column name in \code{meta_dat}
-#' to be used as the primary predictor (exposure).
-#' @param max_iter Integer. Maximum number of iterations allowed. Default is 30.
-#' @param tolerance Numeric. Convergence threshold for the average change in the
-#' reference set. Default is 1e-3.
-#' @param quantile_range A numeric vector of length 2. Defines the abundance
-#' quantile range for the initial reference set. Default is \code{c(0, 1)}.
-#' @param p_threshold Numeric. The p-value threshold for both Kendall and GLM
-#' filters. Taxa with p-values above this threshold are considered "stable".
-#' Default is 0.05.
-#' @param convergence_window Integer. Number of recent iterations to average for
-#' checking convergence. Default is 3.
-#' @param verbose Logical. If \code{TRUE}, prints iteration progress to the
-#' console.
-#' @param seed Integer. Random seed for reproducibility.
-#' @param kendall_transform Character. Transformation to apply before Kendall
-#' test: \code{"none"} or \code{"log1p"}.
-#' @param initial_ref Optional. A logical vector or character vector of taxa
-#' names to seed the first iteration.
-#'
-#' @return A logical vector of length \code{nrow(otu_tab_sim)} indicating
-#' whether each taxon belongs to the final reference set.
-#'
-#' @importFrom stats model.matrix reformulate quantile cor.test pnorm vcov glm poisson var
-#' @importFrom fastglm fastglm
+#' @return A logical vector indicating membership in the final reference set.
 #' @export
+#' @importFrom fastglm fastglm
+#' @importFrom stats cor.test glm model.matrix pnorm poisson quantile
+#'   reformulate var vcov
 #'
 #' @examples
 #' \dontrun{
-#' # Assuming otu_matrix and metadata are pre-loaded
-#' ref_set <- select_reference_irs(
-#'   otu_tab_sim = otu_matrix,
-#'   meta_dat = metadata,
-#'   predictor = "Group",
-#'   p_threshold = 0.05
-#' )
+#' ref <- select_reference_irs(counts, metadata, predictor = "group")
 #' }
-
 select_reference_irs <- function(
-    otu_tab_sim,           # matrix: taxa x samples (counts)
-    meta_dat,              # data.frame: sample metadata
-    predictor,             # string: column name in meta_dat
+    otu_tab_sim,
+    meta_dat,
+    predictor,
     max_iter = 30,
     tolerance = 1e-3,
     quantile_range = c(0, 1),
-    p_threshold = 0.05,    # final Kendall∧GLM threshold
+    p_threshold = 0.05,
     convergence_window = 3,
     verbose = TRUE,
     seed = NULL,
-    kendall_transform = c("none","log1p"),
-    initial_ref = NULL     # NULL | logical(length = n_taxa) | character(rownames)
-) {
-  if (!is.null(seed)) set.seed(seed)
+    kendall_transform = c("none", "log1p"),
+    initial_ref = NULL) {
+  details <- .select_reference_irs_details(
+    otu_tab_sim = otu_tab_sim,
+    meta_dat = meta_dat,
+    predictor = predictor,
+    max_iter = max_iter,
+    tolerance = tolerance,
+    quantile_range = quantile_range,
+    p_threshold = p_threshold,
+    convergence_window = convergence_window,
+    verbose = verbose,
+    seed = seed,
+    kendall_transform = kendall_transform,
+    initial_ref = initial_ref
+  )
+  details$reference
+}
+
+.select_reference_irs_details <- function(
+    otu_tab_sim,
+    meta_dat,
+    predictor,
+    max_iter = 30,
+    tolerance = 1e-3,
+    quantile_range = c(0, 1),
+    p_threshold = 0.05,
+    convergence_window = 3,
+    verbose = TRUE,
+    seed = NULL,
+    kendall_transform = c("none", "log1p"),
+    initial_ref = NULL) {
+  if (!is.null(seed)) {
+    set.seed(seed)
+  }
   kendall_transform <- match.arg(kendall_transform)
 
-  # basic shapes
-  if (is.null(dim(otu_tab_sim))) stop("otu_tab_sim must be a matrix (taxa x samples).")
-  n_taxa  <- nrow(otu_tab_sim)
-  n_samps <- ncol(otu_tab_sim)
-  if (n_taxa < 2L || n_samps < 2L) stop("Need at least 2 taxa and 2 samples.")
-
-  # design matrix
-  if (!is.data.frame(meta_dat)) meta_dat <- as.data.frame(meta_dat)
-  if (!(predictor %in% colnames(meta_dat))) {
-    stop(sprintf("predictor '%s' not found in meta_dat.", predictor))
+  if (is.null(dim(otu_tab_sim))) {
+    stop("otu_tab_sim must be a matrix with taxa in rows and samples in columns.",
+         call. = FALSE)
   }
-  X <- model.matrix(reformulate(predictor, response = NULL), data = meta_dat)
+  otu_tab_sim <- as.matrix(otu_tab_sim)
+  storage.mode(otu_tab_sim) <- "double"
+  n_taxa <- nrow(otu_tab_sim)
+  n_samps <- ncol(otu_tab_sim)
+  if (n_taxa < 2L || n_samps < 2L) {
+    stop("IRS requires at least two taxa and two samples.", call. = FALSE)
+  }
+  if (any(!is.finite(otu_tab_sim)) || any(otu_tab_sim < 0)) {
+    stop("otu_tab_sim must contain finite, non-negative counts.", call. = FALSE)
+  }
 
-  # seed reference set
+  if (!is.data.frame(meta_dat)) {
+    meta_dat <- as.data.frame(meta_dat)
+  }
+  if (nrow(meta_dat) != n_samps) {
+    stop("meta_dat must have one row per sample in otu_tab_sim.", call. = FALSE)
+  }
+  if (length(predictor) != 1L || !predictor %in% colnames(meta_dat)) {
+    stop(sprintf("predictor '%s' was not found in meta_dat.", predictor),
+         call. = FALSE)
+  }
+  X <- stats::model.matrix(stats::reformulate(predictor), data = meta_dat)
+  if (nrow(X) != n_samps) {
+    stop("Missing predictor values are not supported; remove or impute them first.",
+         call. = FALSE)
+  }
+  if (ncol(X) < 2L) {
+    stop("The predictor does not generate a testable model coefficient.",
+         call. = FALSE)
+  }
+
+  if (length(max_iter) != 1L || max_iter < 1 || max_iter != as.integer(max_iter)) {
+    stop("max_iter must be a positive integer.", call. = FALSE)
+  }
+  if (length(convergence_window) != 1L || convergence_window < 1 ||
+      convergence_window != as.integer(convergence_window)) {
+    stop("convergence_window must be a positive integer.", call. = FALSE)
+  }
+  if (length(tolerance) != 1L || !is.finite(tolerance) || tolerance < 0) {
+    stop("tolerance must be a finite non-negative number.", call. = FALSE)
+  }
+  if (length(p_threshold) != 1L || !is.finite(p_threshold) ||
+      p_threshold < 0 || p_threshold > 1) {
+    stop("p_threshold must lie between zero and one.", call. = FALSE)
+  }
+  if (length(quantile_range) != 2L || any(!is.finite(quantile_range)) ||
+      any(quantile_range < 0 | quantile_range > 1) ||
+      quantile_range[1] > quantile_range[2]) {
+    stop("quantile_range must contain two ordered probabilities.", call. = FALSE)
+  }
+
   taxa_abundance <- rowSums(otu_tab_sim)
   if (is.null(initial_ref)) {
     q_bounds <- stats::quantile(taxa_abundance, probs = quantile_range)
-    ref_taxa <- (taxa_abundance >= q_bounds[1]) & (taxa_abundance <= q_bounds[2])
+    ref_taxa <- taxa_abundance >= q_bounds[1] & taxa_abundance <= q_bounds[2]
   } else if (is.logical(initial_ref)) {
-    if (length(initial_ref) != n_taxa) {
-      stop("initial_ref logical vector must have length equal to nrow(otu_tab_sim).")
+    if (length(initial_ref) != n_taxa || anyNA(initial_ref)) {
+      stop("initial_ref must be a non-missing logical vector with one value per taxon.",
+           call. = FALSE)
     }
     ref_taxa <- initial_ref
   } else if (is.character(initial_ref)) {
     if (is.null(rownames(otu_tab_sim))) {
-      stop("Row names are required in otu_tab_sim when initial_ref is character.")
+      stop("Taxon row names are required when initial_ref contains names.",
+           call. = FALSE)
+    }
+    unknown <- setdiff(initial_ref, rownames(otu_tab_sim))
+    if (length(unknown)) {
+      stop("Unknown taxa in initial_ref: ", paste(unknown, collapse = ", "),
+           call. = FALSE)
     }
     ref_taxa <- rownames(otu_tab_sim) %in% initial_ref
   } else {
-    stop("initial_ref must be NULL, logical, or character.")
+    stop("initial_ref must be NULL, logical, or character.", call. = FALSE)
   }
-  if (!any(ref_taxa)) stop("Initial reference set is empty after seeding.")
+  if (!any(ref_taxa)) {
+    stop("The initial reference set is empty.", call. = FALSE)
+  }
 
-  change_history <- numeric(0)
-  iter <- 0L
+  change_history <- numeric()
+  reference_size_history <- integer()
+  converged <- FALSE
 
-  # one iteration: recompute offsets, p-values, and update reference set
-  step_once <- function(threshold_p) {
+  for (iteration in seq_len(max_iter)) {
     total_ref <- colSums(otu_tab_sim[ref_taxa, , drop = FALSE])
-    denom_log <- precompute_log_offsets(total_ref, otu_tab_sim, ref_taxa, eps = 1e-8)
-
-    # Kendall on normalized abundances (computed per-taxon to avoid large temp matrix)
-    p_rank <- vapply(
-      seq_len(n_taxa),
-      FUN = function(i) {
-        y_norm <- otu_tab_sim[i, ] / exp(denom_log[i, ])
-        p <- kendall_pval(y_norm, X, transform = kendall_transform)
-        if (!is.finite(p)) 1 else p
-      },
-      FUN.VALUE = numeric(1)
+    denom_log <- precompute_log_offsets(
+      total_ref, otu_tab_sim, ref_taxa, eps = 1e-8
     )
 
-    # Poisson-GLM with sandwich variance on raw counts + offsets
-    p_glm <- vapply(
-      seq_len(n_taxa),
-      FUN = function(i) {
-        p <- robust_pval(otu_tab_sim[i, ], X, denom_log[i, ])
-        if (!is.finite(p)) 1 else p
-      },
-      FUN.VALUE = numeric(1)
-    )
+    p_rank <- vapply(seq_len(n_taxa), function(i) {
+      y_norm <- otu_tab_sim[i, ] / exp(denom_log[i, ])
+      p <- kendall_pval(y_norm, X, transform = kendall_transform)
+      if (is.finite(p)) p else 1
+    }, numeric(1))
 
-    new_ref <- (p_rank >= threshold_p) & (p_glm >= threshold_p)
-    list(new_ref = new_ref)
-  }
+    p_glm <- vapply(seq_len(n_taxa), function(i) {
+      p <- robust_pval(otu_tab_sim[i, ], X, denom_log[i, ])
+      if (is.finite(p)) p else 1
+    }, numeric(1))
 
-  # main convergence loop (single threshold = p_threshold)
-  for (k in seq_len(max_iter)) {
-    iter <- iter + 1L
-    st <- step_once(threshold_p = p_threshold)
-    new_ref_taxa <- st$new_ref
+    new_ref_taxa <- p_rank >= p_threshold & p_glm >= p_threshold
+    if (!any(new_ref_taxa)) {
+      stop("IRS produced an empty reference set at iteration ", iteration, ".",
+           call. = FALSE)
+    }
 
     delta <- mean(new_ref_taxa != ref_taxa)
     change_history <- c(change_history, delta)
-    if (verbose) cat("Iter:", k, "Reference size:", sum(new_ref_taxa),
-                     "Δ:", round(delta, 4), "\n")
+    reference_size_history <- c(reference_size_history, sum(new_ref_taxa))
+    if (verbose) {
+      cat("Iter:", iteration, "Reference size:", sum(new_ref_taxa),
+          "change:", round(delta, 4), "\n")
+    }
 
-    # update, then check averaged recent change
     ref_taxa <- new_ref_taxa
-    if (length(change_history) >= convergence_window) {
-      avg_delta <- mean(tail(change_history, convergence_window))
-      if (avg_delta < tolerance) {
-        if (verbose) message(sprintf("Converged at iteration %d", iter))
-        break
+    if (length(change_history) >= convergence_window &&
+        mean(utils::tail(change_history, convergence_window)) < tolerance) {
+      converged <- TRUE
+      if (verbose) {
+        message(sprintf("Converged at iteration %d", iteration))
       }
+      break
     }
   }
 
-  return(ref_taxa)
+  names(ref_taxa) <- rownames(otu_tab_sim)
+  list(
+    reference = ref_taxa,
+    converged = converged,
+    iterations = length(change_history),
+    change_history = change_history,
+    reference_size_history = reference_size_history
+  )
 }
 
 #' @keywords internal
-kendall_pval <- function(
-    y,                 # numeric: normalized abundance for one taxon (length = n samples)
-    X,                 # design matrix; use column 2 as predictor by default
-    offset_vec = NULL, # unused; kept for API compatibility
-    x_col = 2,
-    transform = c("none","log1p")  # optional transform to reduce ties/heavy tails
-) {
-  # --- helpers ---------------------------------------------------------------
-  # Kendall p-value helper (robust to extremes; ties handled internally)
+kendall_pval <- function(y, X, offset_vec = NULL, x_col = 2,
+                         transform = c("none", "log1p")) {
   transform <- match.arg(transform)
-  # predictor vector
   stopifnot(is.matrix(X) || is.data.frame(X))
-  if (x_col > ncol(X)) stop("x_col exceeds number of columns in X")
+  if (x_col > ncol(X)) {
+    stop("x_col exceeds the number of columns in X.", call. = FALSE)
+  }
   x <- X[, x_col]
-  if (is.factor(x))    x <- as.numeric(as.character(x))
+  if (is.factor(x)) x <- as.numeric(as.character(x))
   if (is.character(x)) x <- as.numeric(x)
-
-  # optional transform on response
   if (transform == "log1p") y <- log1p(y)
 
-  # finite pairs only
   keep <- is.finite(y) & is.finite(x)
-  y <- y[keep]; x <- x[keep]
-
-  # need variability
+  y <- y[keep]
+  x <- x[keep]
   if (length(y) < 3L || length(unique(y)) < 2L || length(unique(x)) < 2L) {
     return(NA_real_)
   }
-  suppressWarnings(as.numeric(stats::cor.test(x, y, method = "kendall", exact = FALSE)$p.value))
+  suppressWarnings(as.numeric(stats::cor.test(
+    x, y, method = "kendall", exact = FALSE
+  )$p.value))
 }
 
 #' @keywords internal
-robust_pval <- function(y, X, offset_vec,
-                        mu_floor = 1e-10,
-                        ridge    = 1e-8) {
-  # Poisson-GLM with sandwich (HC3) p-value for the 2nd coefficient
-  if (length(y) < 3L || var(y) == 0 || ncol(X) < 2L) return(1)
+robust_pval <- function(y, X, offset_vec, mu_floor = 1e-10, ridge = 1e-8) {
+  if (length(y) < 3L || stats::var(y) == 0 || ncol(X) < 2L) return(1)
   fit <- tryCatch(
-    fastglm::fastglm(x = X, y = y, family = poisson(),
-                     offset = offset_vec, model = FALSE),
+    fastglm::fastglm(
+      x = X, y = y, family = stats::poisson(), offset = offset_vec,
+      model = FALSE
+    ),
     error = function(e) NULL
   )
   if (is.null(fit)) return(1)
@@ -217,47 +260,38 @@ robust_pval <- function(y, X, offset_vec,
   if (!all(is.finite(beta_hat))) return(1)
 
   eta <- offset_vec + as.vector(X %*% beta_hat)
-  mu  <- exp(eta)
-  mu  <- pmax(mu, mu_floor)
-  WX   <- X * mu
-  XtWX <- crossprod(X, WX)
+  mu <- pmax(exp(eta), mu_floor)
+  XtWX <- crossprod(X, X * mu)
   p <- ncol(X)
-  XtWX_reg <- XtWX + diag(ridge, p)
-
-  bread <- tryCatch(solve(XtWX_reg),
-                    error = function(e) NULL)
+  bread <- tryCatch(solve(XtWX + diag(ridge, p)), error = function(e) NULL)
   if (is.null(bread) || any(!is.finite(bread))) {
-    V_fisher <- tryCatch(stats::vcov(glm(y ~ X[,2], family = poisson(),
-                                         offset = offset_vec)),
-                         error = function(e) NULL)
+    V_fisher <- tryCatch(
+      stats::vcov(stats::glm(
+        y ~ X[, 2], family = stats::poisson(), offset = offset_vec
+      )),
+      error = function(e) NULL
+    )
     if (is.null(V_fisher)) return(0)
     se <- sqrt(diag(V_fisher))
     if (!is.finite(se[2]) || se[2] == 0) return(0)
-    z <- beta_hat[2] / se[2]
-    return(2 * stats::pnorm(-abs(z)))
+    return(2 * stats::pnorm(-abs(beta_hat[2] / se[2])))
   }
 
-  # Meat: X' diag((y-mu)^2) X
-  XR   <- X * (y - mu)
-  meat <- crossprod(XR)
-
+  meat <- crossprod(X * (y - mu))
   vcov <- bread %*% meat %*% bread
   if (any(!is.finite(vcov))) return(0)
-
   se2 <- diag(vcov)
   if (length(se2) < 2L || !is.finite(se2[2]) || se2[2] <= 0) return(0)
-
-  z <- beta_hat[2] / sqrt(se2[2])
-  2 * stats::pnorm(-abs(z))
+  2 * stats::pnorm(-abs(beta_hat[2] / sqrt(se2[2])))
 }
 
 #' @keywords internal
 precompute_log_offsets <- function(total_ref, otu_tab, ref_taxa, eps = 1e-8) {
-  # precompute log-offset matrix: log(total_ref - self), with floor eps
-  off <- matrix(total_ref, nrow = nrow(otu_tab), ncol = ncol(otu_tab), byrow = TRUE)
+  off <- matrix(
+    total_ref, nrow = nrow(otu_tab), ncol = ncol(otu_tab), byrow = TRUE
+  )
   if (any(ref_taxa)) {
     off[ref_taxa, ] <- off[ref_taxa, ] - otu_tab[ref_taxa, , drop = FALSE]
   }
   log(pmax(off, eps))
 }
-

@@ -1,0 +1,311 @@
+---
+title: "Getting started with IRS normalization"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Getting started with IRS normalization}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  message = FALSE,
+  warning = FALSE,
+  fig.width = 6,
+  fig.height = 4
+)
+```
+
+IRS estimates sample-specific normalization factors from a set of taxa that is
+stable with respect to the variable being tested. The usual workflow has three
+steps:
+
+1. fit IRS to the count matrix and sample metadata;
+2. inspect the selected references and normalization factors;
+3. use the fitted object directly or pass it to a downstream DAA package.
+
+This vignette illustrates the complete workflow with a small simulated data
+set. A second vignette, `vignette("vandeputte2017", package = "IRS")`, applies
+the same workflow to a published gut microbiome study.
+
+## A small microbiome data set
+
+We simulate 30 taxa measured in 40 samples. The first five taxa have a two-fold
+increase in the case group. A sample-specific multiplicative factor changes
+the total number of observed counts without changing which taxa are truly
+associated with group.
+
+```{r simulate}
+set.seed(2026)
+
+n_taxa <- 30
+n_samples <- 40
+signal_taxa <- paste0("taxon", 1:5)
+
+metadata <- data.frame(
+  group = factor(
+    rep(c("control", "case"), each = n_samples / 2),
+    levels = c("control", "case")
+  ),
+  row.names = paste0("sample", seq_len(n_samples))
+)
+
+sample_scale <- exp(rnorm(n_samples, sd = 0.35))
+baseline_mean <- exp(runif(n_taxa, log(15), log(80)))
+mean_matrix <- outer(baseline_mean, sample_scale)
+mean_matrix[1:5, metadata$group == "case"] <-
+  2 * mean_matrix[1:5, metadata$group == "case"]
+
+counts <- matrix(
+  rpois(length(mean_matrix), lambda = as.vector(mean_matrix)),
+  nrow = n_taxa,
+  dimnames = list(
+    paste0("taxon", seq_len(n_taxa)),
+    rownames(metadata)
+  )
+)
+
+dim(counts)
+table(metadata$group)
+```
+
+IRS expects taxa in rows, samples in columns, and matching sample names in the
+metadata.
+
+## Fit and inspect IRS
+
+```{r fit}
+library(IRS)
+
+fit <- fit_irs(
+  counts = counts,
+  meta_dat = metadata,
+  predictor = "group",
+  seed = 123,
+  verbose = FALSE
+)
+
+fit
+```
+
+The fitted object records the final reference set, sample size factors, and
+iteration history. Here IRS selects stable taxa while excluding the five taxa
+used to generate the group effect.
+
+```{r inspect-fit}
+head(reference_taxa(fit))
+length(reference_taxa(fit))
+intersect(reference_taxa(fit), signal_taxa)
+
+fit_diagnostics <- diagnostics(fit)
+fit_diagnostics$converged
+fit_diagnostics$iterations
+head(fit_diagnostics$samples)
+```
+
+Because the sampling factors are known in this example, they can be compared
+with the estimated IRS factors.
+
+```{r plot-factors, fig.alt="IRS size factors versus simulated sample scales"}
+plot(
+  sample_scale,
+  size_factors(fit),
+  log = "xy",
+  pch = 19,
+  xlab = "Simulated sample scale",
+  ylab = "IRS size factor"
+)
+abline(lm(log(size_factors(fit)) ~ log(sample_scale)), col = "#2C7FB8")
+round(cor(log(sample_scale), log(size_factors(fit))), 3)
+```
+
+## Normalize counts and test taxa
+
+`normalized_counts()` divides each sample by its centered IRS reference total
+and retains the original taxa-by-samples orientation.
+
+```{r normalize}
+irs_counts <- normalized_counts(fit, counts)
+irs_counts[1:4, 1:4]
+```
+
+For a simple two-group analysis, `irs_wilcox()` combines IRS normalization,
+taxon-wise Wilcoxon tests, and multiple-testing adjustment.
+
+```{r wilcoxon}
+irs_result <- irs_wilcox(
+  fit,
+  counts,
+  group = "group",
+  metadata = metadata
+)
+
+irs_hits <- subset(irs_result, p_adjusted < 0.05)
+irs_hits[, c("taxon", "statistic", "p_adjusted")]
+```
+
+All five simulated signals are recovered in this run.
+
+```{r truth-summary}
+data.frame(
+  discoveries = nrow(irs_hits),
+  true_signals_found = sum(irs_hits$taxon %in% signal_taxa),
+  other_taxa_called = sum(!irs_hits$taxon %in% signal_taxa)
+)
+```
+
+The sample-scale variation makes total-sum scaling a useful contrast in this
+example. The same Wilcoxon test after total-sum scaling calls many stable taxa,
+whereas IRS retains the five simulated signals.
+
+```{r tss-comparison}
+tss <- sweep(counts, 2, colSums(counts), "/")
+tss_p <- apply(tss, 1, function(x) {
+  wilcox.test(x ~ metadata$group, exact = FALSE)$p.value
+})
+tss_hits <- rownames(counts)[p.adjust(tss_p, method = "BH") < 0.05]
+
+data.frame(
+  normalization = c("Total-sum scaling", "IRS"),
+  discoveries = c(length(tss_hits), nrow(irs_hits)),
+  true_signals_found = c(
+    sum(tss_hits %in% signal_taxa),
+    sum(irs_hits$taxon %in% signal_taxa)
+  )
+)
+```
+
+## Continue with a downstream DAA package
+
+The same `fit` can be reused across supported downstream workflows.
+
+| Downstream method | IRS helper | What is passed downstream |
+|:--|:--|:--|
+| DESeq2 | `inject_deseq2()` | size factors |
+| edgeR | `inject_edger()` | effective library sizes |
+| MaAsLin2 LM | `prepare_maaslin2()` | normalized feature table |
+| ZicoSeq | `zicoseq_irs()` | fixed IRS references and reference totals |
+| LDM frequency scale | `prepare_ldm()` | normalized feature table |
+| Wilcoxon | `irs_wilcox()` | complete test result |
+| DACOMP | `reference_for_dacomp()` | reference-taxon indices |
+| ALDEx2 | `denom_for_aldex2()` | denominator-taxon indices |
+
+The following examples are ready to run when the corresponding package is
+installed.
+
+### DESeq2
+
+```{r deseq2, eval=FALSE}
+dds <- DESeq2::DESeqDataSetFromMatrix(counts, metadata, ~ group)
+dds <- inject_deseq2(dds, fit)
+dds <- DESeq2::DESeq(dds)
+deseq2_result <- DESeq2::results(dds, contrast = c("group", "case", "control"))
+```
+
+`inject_deseq2()` preserves the integer count matrix. Once IRS factors have
+been injected, proceed directly to `DESeq()`.
+
+### edgeR
+
+```{r edger, eval=FALSE}
+design <- model.matrix(~ group, metadata)
+y <- edgeR::DGEList(counts)
+y <- inject_edger(y, fit)
+y <- edgeR::estimateDisp(y, design, robust = TRUE)
+ql_fit <- edgeR::glmQLFit(y, design, robust = TRUE)
+edger_result <- edgeR::glmQLFTest(ql_fit, coef = "groupcase")
+```
+
+The count matrix remains unchanged, and edgeR uses effective library sizes
+derived from the IRS reference totals.
+
+### MaAsLin2
+
+```{r maaslin2, eval=FALSE}
+m2 <- prepare_maaslin2(fit, counts)
+
+maaslin2_result <- Maaslin2::Maaslin2(
+  input_data = m2$input_data,
+  input_metadata = metadata,
+  output = "maaslin2_irs",
+  normalization = m2$normalization,
+  analysis_method = m2$analysis_method,
+  fixed_effects = "group"
+)
+```
+
+The helper returns samples in rows and sets MaAsLin2 to use the supplied
+normalized values with its linear-model workflow.
+
+### ZicoSeq
+
+```{r zicoseq, eval=FALSE}
+zicoseq_result <- zicoseq_irs(
+  meta.dat = metadata,
+  feature.dat = counts,
+  grp.name = "group",
+  irs_fit = fit,
+  is.winsor = FALSE,
+  is.post.sample = TRUE,
+  post.sample.no = 25,
+  perm.no = 999
+)
+```
+
+`zicoseq_irs()` runs the ZicoSeq testing workflow with the reference set chosen
+by IRS.
+
+### DACOMP and ALDEx2
+
+These packages accept a set of reference taxa and then apply their native
+transformations and tests.
+
+```{r reference-adapters, eval=FALSE}
+dacomp_refs <- reference_for_dacomp(fit, t(counts))
+dacomp_result <- dacomp::dacomp.test(
+  X = t(counts),
+  y = metadata$group,
+  ind_reference_taxa = dacomp_refs,
+  test = dacomp::DACOMP.TEST.NAME.WILCOXON
+)
+
+aldex_refs <- denom_for_aldex2(fit, counts)
+aldex_clr <- ALDEx2::aldex.clr(
+  reads = counts,
+  conds = metadata$group,
+  denom = aldex_refs
+)
+aldex_result <- ALDEx2::aldex.ttest(aldex_clr)
+```
+
+### LDM
+
+```{r ldm, eval=FALSE}
+ldm_input <- prepare_ldm(fit, counts)
+
+irs_otu <- as.matrix(ldm_input$otu_table)
+ldm_result <- LDM::ldm(
+  formula = irs_otu ~ group,
+  data = metadata,
+  scale.otu.table = ldm_input$scale.otu.table,
+  freq.scale.only = ldm_input$freq.scale.only,
+  comp.anal = ldm_input$comp.anal,
+  n.perm.max = 1000
+)
+```
+
+The LDM helper prepares IRS-normalized values for the frequency-scale branch.
+
+## A few practical checks
+
+Before fitting a downstream model, it is useful to confirm that:
+
+- count-matrix columns and metadata rows have matching sample names;
+- `diagnostics(fit)$converged` is `TRUE` and every reference total is positive;
+- downstream software is not asked to estimate a second set of normalization
+  factors after IRS values have been supplied.
+
+The companion Vandeputte vignette shows how these steps look with published
+data and an external microbial-load measurement.

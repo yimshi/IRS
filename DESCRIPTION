@@ -1,19 +1,48 @@
 Package: IRS
 Title: Iterative Reference Selection for Microbiome Normalization
-Version: 0.1.0
+Version: 0.2.0
 Authors@R: 
-    person("Yiming", "Shi", , "yimingshi@wustl.edu", role = c("aut", "cre"),
-           comment = c(ORCID = "0000-0001-7525-6471"))
+    c(person("Yiming", "Shi", , "yimingshi@wustl.edu", role = c("aut", "cre"),
+             comment = c(ORCID = "0000-0001-7525-6471")),
+      person("Jun", "Chen", role = "ctb",
+             comment = "Author of the GPL-3 ZicoSeq implementation in GUniFrac"),
+      person("Xianyang", "Zhang", role = "ctb",
+             comment = "Author of the GPL-3 ZicoSeq implementation in GUniFrac"),
+      person("Lu", "Yang", role = "ctb",
+             comment = "Author of the GPL-3 ZicoSeq implementation in GUniFrac"),
+      person("Lujun", "Zhang", role = "ctb",
+             comment = "Author of the GPL-3 ZicoSeq implementation in GUniFrac"))
 Description: Provides a robust iterative algorithm for selecting reference taxa 
     in microbiome data analysis. It combines Kendall's rank correlation and 
     robust Poisson regression with sandwich variance estimators to identify 
-    taxa that are stable across experimental conditions, facilitating 
-    bias-reduced normalization.
-License: MIT + file LICENSE
+    taxa that are stable across experimental conditions. A fitted IRS object
+    supplies reference totals, size factors, normalized counts, diagnostics,
+    and adapters for downstream differential abundance analysis packages.
+License: GPL-3
 Encoding: UTF-8
 LazyData: true
+URL: https://github.com/yimshi/IRS
+BugReports: https://github.com/yimshi/IRS/issues
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.3
+Depends:
+    R (>= 2.10)
 Imports: 
     fastglm (>= 0.0.3),
+    matrixStats,
+    rmutil,
+    vegan,
     stats
+Suggests:
+    ALDEx2,
+    dacomp,
+    DESeq2,
+    edgeR,
+    GUniFrac (>= 1.9),
+    knitr,
+    LDM,
+    Maaslin2,
+    rmarkdown,
+    testthat (>= 3.0.0)
+Config/testthat/edition: 3
+VignetteBuilder: knitr

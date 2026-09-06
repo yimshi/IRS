@@ -1,0 +1,44 @@
+IRS package
+===========
+
+Copyright (C) 2026 Yiming Shi
+
+The IRS package is distributed under the GNU General Public License version 3.
+
+ZicoSeq-derived implementation
+==============================
+
+R/zicoseq.R is derived from the ZicoSeq implementation distributed in
+GUniFrac 1.9 under GPL-3.
+
+Original GUniFrac/ZicoSeq authors credited by the package DESCRIPTION:
+
+* Jun Chen
+* Xianyang Zhang
+* Lu Yang
+* Lujun Zhang
+
+IRS modifications replace internal reference selection with a fixed IRS
+reference set, match references by taxon name, preserve original-count IRS
+reference totals across feature filtering and winsorization, add strict input
+alignment and zero-denominator behavior, and report IRS provenance.
+
+Vandeputte 2017 example data
+============================
+
+The vandeputte2017 data object contains genus-level 16S counts, sample group,
+and flow-cytometry microbial-load measurements from:
+
+Vandeputte D, Kathagen G, D'hoe K, et al. (2017). Quantitative microbiome
+profiling links gut community variation to microbial load. Nature 551,
+507-511. https://doi.org/10.1038/nature24460
+
+The processed count and load files were obtained from the CellCount_Nishijima_
+2024 data release by Suguru Nishijima:
+
+https://doi.org/10.5281/zenodo.14243685
+
+These data are redistributed under the Creative Commons Attribution 4.0
+International license (CC BY 4.0):
+
+https://creativecommons.org/licenses/by/4.0/

@@ -1,0 +1,235 @@
+---
+title: "IRS in the Vandeputte 2017 gut microbiome study"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{IRS in the Vandeputte 2017 gut microbiome study}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  message = FALSE,
+  warning = FALSE,
+  fig.width = 6,
+  fig.height = 4
+)
+```
+
+Vandeputte et al. measured gut microbial composition and total microbial load
+in individuals with Crohn's disease and controls. This makes the study a useful
+case study for normalization: IRS can be fitted from the sequencing counts,
+while flow-cytometry measurements provide an external quantitative comparison.
+
+The package includes genus-level 16S counts and microbial-load measurements for
+95 samples. The data object is a list containing a taxa-by-samples count matrix
+and a sample metadata table.
+
+```{r load-data}
+library(IRS)
+data("vandeputte2017", package = "IRS")
+
+counts <- vandeputte2017$counts
+sample_data <- vandeputte2017$sample_data
+
+dim(counts)
+table(sample_data$group)
+head(sample_data)
+```
+
+## Fit IRS
+
+We select references for the Crohn's disease comparison and store the resulting
+normalization in a reusable `irs_fit` object.
+
+```{r fit}
+fit <- fit_irs(
+  counts = counts,
+  meta_dat = sample_data,
+  predictor = "group",
+  seed = 123,
+  verbose = FALSE
+)
+
+fit
+head(reference_taxa(fit), 10)
+```
+
+The sample diagnostics summarize library totals, reference totals, and centered
+IRS size factors.
+
+```{r diagnostics}
+fit_diagnostics <- diagnostics(fit)
+fit_diagnostics$converged
+fit_diagnostics$iterations
+summary(fit_diagnostics$samples$reference_fraction)
+```
+
+Library totals and IRS reference totals capture different aspects of each
+sample. Their relationship can be inspected before downstream testing.
+
+```{r totals-plot, fig.alt="Sequencing library totals versus IRS reference totals"}
+group_color <- ifelse(sample_data$group == "CD", "#D95F02", "#1B9E77")
+plot(
+  fit_diagnostics$samples$library_total,
+  fit_diagnostics$samples$reference_total,
+  log = "xy",
+  pch = 19,
+  col = group_color,
+  xlab = "Sequencing library total",
+  ylab = "IRS reference total"
+)
+legend(
+  "topleft",
+  legend = levels(sample_data$group),
+  col = c("#1B9E77", "#D95F02"),
+  pch = 19,
+  bty = "n"
+)
+```
+
+## Differential abundance with IRS
+
+The built-in Wilcoxon workflow provides a compact first analysis. We add a
+median log2 fold change calculated from the normalized abundances to aid
+interpretation.
+
+```{r irs-test}
+irs_result <- irs_wilcox(
+  fit,
+  counts,
+  group = "group",
+  metadata = sample_data
+)
+
+irs_abundance <- normalized_counts(fit, counts)
+control_median <- apply(
+  irs_abundance[, sample_data$group == "Control", drop = FALSE],
+  1,
+  median
+)
+cd_median <- apply(
+  irs_abundance[, sample_data$group == "CD", drop = FALSE],
+  1,
+  median
+)
+irs_result$median_log2_fold_change <-
+  log2((cd_median + 1) / (control_median + 1))
+
+top_irs <- irs_result[order(irs_result$p_adjusted), ]
+head(
+  top_irs[, c("taxon", "median_log2_fold_change", "p_adjusted")],
+  10
+)
+```
+
+```{r discovery-count}
+irs_called <- irs_result$taxon[irs_result$p_adjusted < 0.05]
+length(irs_called)
+```
+
+For a count-based model, the same fitted normalization can be injected into a
+native DESeq2 workflow.
+
+```{r deseq2, eval=FALSE}
+dds <- DESeq2::DESeqDataSetFromMatrix(
+  countData = counts,
+  colData = sample_data,
+  design = ~ group
+)
+dds <- inject_deseq2(dds, fit)
+dds <- DESeq2::DESeq(dds)
+deseq2_result <- DESeq2::results(
+  dds,
+  contrast = c("group", "CD", "Control")
+)
+```
+
+Other supported DAA packages use the same `fit`; see
+`vignette("downstream-daa", package = "IRS")` for complete adapter examples.
+
+## Comparison with quantitative microbiome profiling
+
+The study's total cell counts can be combined with sequencing relative
+abundances to form quantitative microbiome profiles (QMP). Here QMP is used as
+an external reference for the Crohn's disease comparison.
+
+```{r qmp}
+relative_abundance <- sweep(counts, 2, colSums(counts), "/")
+qmp <- sweep(
+  relative_abundance,
+  2,
+  sample_data$microbial_load,
+  "*"
+)
+
+qmp_p <- apply(qmp, 1, function(x) {
+  wilcox.test(x ~ sample_data$group, exact = FALSE)$p.value
+})
+qmp_q <- p.adjust(qmp_p, method = "BH")
+qmp_called <- rownames(qmp)[qmp_q < 0.05]
+
+data.frame(
+  comparison = c("IRS-normalized", "QMP", "Shared"),
+  taxa = c(
+    length(irs_called),
+    length(qmp_called),
+    length(intersect(irs_called, qmp_called))
+  )
+)
+```
+
+In this analysis, nearly all taxa detected from IRS-normalized sequencing
+counts are also detected by the flow-cytometry-based QMP analysis.
+
+## Results across downstream models
+
+The IRS adapters were also evaluated with eight downstream DAA workflows. The
+table below reports paired results from the same data and uses the QMP-positive
+set above as the external benchmark. `Matched` denotes a discovery in that set;
+`other` denotes a discovery outside it.
+
+```{r benchmark-table}
+data("irs_daa_benchmark", package = "IRS")
+vandeputte_benchmark <- subset(
+  irs_daa_benchmark,
+  dataset == "vandeputte2017"
+)
+
+benchmark_display <- data.frame(
+  Method = vandeputte_benchmark$method,
+  `Native calls (matched/other)` = sprintf(
+    "%d (%d/%d)",
+    vandeputte_benchmark$native_discoveries,
+    vandeputte_benchmark$native_benchmark_positive,
+    vandeputte_benchmark$native_benchmark_negative
+  ),
+  `IRS calls (matched/other)` = sprintf(
+    "%d (%d/%d)",
+    vandeputte_benchmark$irs_discoveries,
+    vandeputte_benchmark$irs_benchmark_positive,
+    vandeputte_benchmark$irs_benchmark_negative
+  ),
+  `Native F1` = vandeputte_benchmark$native_f1,
+  `IRS F1` = vandeputte_benchmark$irs_f1,
+  check.names = FALSE
+)
+
+knitr::kable(benchmark_display, digits = 3, align = c("l", "c", "c", "r", "r"))
+```
+
+Across these paired analyses, the IRS-integrated workflow has higher
+concordance with the QMP benchmark for each downstream method. The benchmark
+table is precomputed so that the vignette remains quick to build; the data
+object records the package versions and analysis settings used.
+
+## Data source
+
+The study is described in Vandeputte et al. (2017), *Quantitative microbiome
+profiling links gut community variation to microbial load*, Nature 551,
+507--511 ([doi:10.1038/nature24460](https://doi.org/10.1038/nature24460)). The
+processed files were obtained from the CellCount_Nishijima_2024 data release
+([doi:10.5281/zenodo.14243685](https://doi.org/10.5281/zenodo.14243685)) and are
+redistributed under CC BY 4.0.

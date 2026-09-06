@@ -20,71 +20,46 @@ select_reference_irs(
 )
 }
 \arguments{
-\item{otu_tab_sim}{A numeric \code{matrix} of taxon counts (taxa as rows,
-samples as columns).}
+\item{otu_tab_sim}{Numeric matrix of counts with taxa in rows and samples in
+columns.}
 
-\item{meta_dat}{A \code{data.frame} containing sample metadata.}
+\item{meta_dat}{Data frame containing one row per sample.}
 
-\item{predictor}{A \code{string} specifying the column name in \code{meta_dat}
-to be used as the primary predictor (exposure).}
+\item{predictor}{Name of the primary predictor in \code{meta_dat}.}
 
-\item{max_iter}{Integer. Maximum number of iterations allowed. Default is 30.}
+\item{max_iter}{Maximum number of iterations.}
 
-\item{tolerance}{Numeric. Convergence threshold for the average change in the
-reference set. Default is 1e-3.}
+\item{tolerance}{Convergence threshold for the recent mean proportion of
+reference-set changes.}
 
-\item{quantile_range}{A numeric vector of length 2. Defines the abundance
-quantile range for the initial reference set. Default is \code{c(0, 1)}.}
+\item{quantile_range}{Two probabilities defining the abundance range used to
+seed the initial reference set.}
 
-\item{p_threshold}{Numeric. The p-value threshold for both Kendall and GLM
-filters. Taxa with p-values above this threshold are considered "stable".
-Default is 0.05.}
+\item{p_threshold}{Taxa with both IRS screening p-values greater than or
+equal to this value remain in the reference set.}
 
-\item{convergence_window}{Integer. Number of recent iterations to average for
-checking convergence. Default is 3.}
+\item{convergence_window}{Number of recent iterations used for convergence.}
 
-\item{verbose}{Logical. If \code{TRUE}, prints iteration progress to the
-console.}
+\item{verbose}{Print iteration progress.}
 
-\item{seed}{Integer. Random seed for reproducibility.}
+\item{seed}{Optional random seed retained for reproducible workflows.}
 
-\item{kendall_transform}{Character. Transformation to apply before Kendall
-test: \code{"none"} or \code{"log1p"}.}
+\item{kendall_transform}{Transformation used before the Kendall screen.}
 
-\item{initial_ref}{Optional. A logical vector or character vector of taxa
-names to seed the first iteration.}
+\item{initial_ref}{Optional logical vector or character vector of taxa names
+used to seed the first iteration.}
 }
 \value{
-A logical vector of length \code{nrow(otu_tab_sim)} indicating
-whether each taxon belongs to the final reference set.
+A logical vector indicating membership in the final reference set.
 }
 \description{
-This function implements the Iterative Reference Selection (IRS) algorithm.
-It identifies a stable set of reference taxa that are not associated with
-the predictor of interest, which can then be used for normalization in
-downstream differential abundance analysis.
-}
-\details{
-The selection process is an iterative procedure that combines two robust
-statistical filters:
-\itemize{
-\item \strong{Kendall's Rank Correlation}: A non-parametric test to assess
-monotonic relationships on normalized abundances.
-\item \strong{Robust Poisson GLM}: A Generalized Linear Model with sandwich
-(HC3) variance estimators to account for overdispersion and potential
-model misspecification in count data.
-}
-Convergence is achieved when the proportion of change in the reference set
-falls below the specified \code{tolerance}.
+Identifies a stable set of reference taxa that are not associated with the
+predictor of interest. The returned logical vector can be used directly by
+existing code; \code{\link[=fit_irs]{fit_irs()}} provides the richer interface used by downstream
+adapters.
 }
 \examples{
 \dontrun{
-# Assuming otu_matrix and metadata are pre-loaded
-ref_set <- select_reference_irs(
-  otu_tab_sim = otu_matrix,
-  meta_dat = metadata,
-  predictor = "Group",
-  p_threshold = 0.05
-)
+ref <- select_reference_irs(counts, metadata, predictor = "group")
 }
 }
