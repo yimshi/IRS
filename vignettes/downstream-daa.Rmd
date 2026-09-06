@@ -18,9 +18,13 @@ knitr::opts_chunk$set(
 )
 ```
 
-IRS estimates sample-specific normalization factors from a set of taxa that is
-stable with respect to the variable being tested. The usual workflow has three
-steps:
+IRS is a label-informed reference-learning and bias-correction method for
+microbiome sequencing data. It iteratively refines a candidate reference set to
+reduce contamination by differentially abundant taxa, then uses the selected
+reference taxa to estimate relative sampling depths across samples. The
+resulting normalization corrects the sample-specific scaling of observed read
+counts before downstream differential-abundance analysis. The usual workflow
+has three steps:
 
 1. fit IRS to the count matrix and sample metadata;
 2. inspect the selected references and normalization factors;

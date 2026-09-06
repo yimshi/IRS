@@ -12,12 +12,14 @@ Authors@R:
              comment = "Author of the GPL-3 ZicoSeq implementation in GUniFrac"),
       person("Lujun", "Zhang", role = "ctb",
              comment = "Author of the GPL-3 ZicoSeq implementation in GUniFrac"))
-Description: Provides a robust iterative algorithm for selecting reference taxa 
-    in microbiome data analysis. It combines Kendall's rank correlation and 
-    robust Poisson regression with sandwich variance estimators to identify 
-    taxa that are stable across experimental conditions. A fitted IRS object
-    supplies reference totals, size factors, normalized counts, diagnostics,
-    and adapters for downstream differential abundance analysis packages.
+Description: Provides a label-informed reference-learning and bias-correction
+    method for microbiome sequencing data. It iteratively screens and refines
+    a candidate reference set to reduce contamination by differentially
+    abundant taxa, then uses the selected reference taxa to estimate relative
+    sampling depths across samples. Correcting the sample-specific scaling of
+    observed read counts supports recovery of taxon-specific fold changes on
+    the absolute-abundance scale and integration with downstream differential
+    abundance analysis frameworks.
 License: GPL-3
 Encoding: UTF-8
 LazyData: true

@@ -1,12 +1,17 @@
-# IRS: Iterative Reference Selection for Microbiome Data
+# IRS: Iterative reference selection improves normalization of microbiome sequencing data
 
-IRS selects stable reference taxa and estimates reusable sample normalization
-factors for microbiome differential abundance analysis. Fit IRS once, inspect
-the selected references, and continue with either the built-in Wilcoxon test or
-a supported downstream DAA package.
+IRS is a label-informed reference-learning and bias-correction method for
+microbiome sequencing data. It iteratively screens and refines a candidate
+reference set to reduce contamination by differentially abundant taxa, then
+uses the selected reference taxa to estimate relative sampling depths across
+samples. By correcting the sample-specific scaling of observed read counts,
+IRS supports recovery of taxon-specific fold changes on the absolute-abundance
+scale and improves downstream differential-abundance inference.
 
-Counts are supplied as a taxa-by-samples matrix with unique taxon and sample
-names.
+IRS takes a taxa-by-samples matrix of sequencing read counts and sample-level
+metadata containing the biological condition or covariate of interest. Taxon
+and sample identifiers must be unique; metadata rows should be named to match
+the count-matrix columns.
 
 ## Installation
 
