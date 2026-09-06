@@ -10,7 +10,10 @@ make_irs_test_data <- function(n_taxa = 24L, n_samples = 50L, seed = 42L) {
     )
   )
   metadata <- data.frame(
-    group = factor(rep(c("control", "case"), length.out = n_samples)),
+    group = factor(
+      rep(c("control", "case"), length.out = n_samples),
+      levels = c("control", "case")
+    ),
     row.names = colnames(counts)
   )
   list(counts = counts, metadata = metadata)

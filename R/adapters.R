@@ -28,7 +28,12 @@
 #'
 #' The original integer counts are retained. The injected size factors are the
 #' geometric-mean-centered IRS reference totals, so DESeq2 normalized counts
-#' are a common constant multiple of the IRS ratios.
+#' are a common constant multiple of the IRS ratios. The returned data set can
+#' be passed directly to [DESeq2::DESeq()], which recognizes and uses the
+#' pre-existing size factors. Do not call `DESeq2::estimateSizeFactors()` after
+#' injection, because it would replace the IRS factors. Likewise, do not assign
+#' a `DESeq2::normalizationFactors()` matrix after injection, because DESeq2
+#' gives that matrix precedence over size factors.
 #'
 #' @param dds A `DESeqDataSet`.
 #' @param fit An `irs_fit` object.

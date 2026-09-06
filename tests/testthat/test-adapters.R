@@ -16,6 +16,14 @@ test_that("DESeq2 receives IRS size factors without changing counts", {
     unname(size_factors(fit)),
     tolerance = 1e-12
   )
+
+  injected_size_factors <- DESeq2::sizeFactors(dds)
+  dds <- DESeq2::DESeq(dds, fitType = "mean", quiet = TRUE)
+  expect_equal(
+    unname(DESeq2::sizeFactors(dds)),
+    unname(injected_size_factors),
+    tolerance = 1e-12
+  )
 })
 
 test_that("edgeR effective library sizes are proportional to IRS totals", {

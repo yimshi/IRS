@@ -73,6 +73,11 @@ dds <- DESeq2::DESeq(dds)
 result <- DESeq2::results(dds, contrast = c("group", "case", "control"))
 ```
 
+`DESeq()` uses the pre-existing IRS size factors. Do not call
+`estimateSizeFactors()` or assign a `normalizationFactors(dds)` matrix after
+`inject_deseq2()`, because those operations would replace or override the IRS
+normalization.
+
 ## Vignettes and example data
 
 ```r

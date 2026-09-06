@@ -208,8 +208,11 @@ dds <- DESeq2::DESeq(dds)
 deseq2_result <- DESeq2::results(dds, contrast = c("group", "case", "control"))
 ```
 
-`inject_deseq2()` preserves the integer count matrix. Once IRS factors have
-been injected, proceed directly to `DESeq()`.
+`inject_deseq2()` preserves the integer count matrix and sets
+`sizeFactors(dds)` to the centered IRS reference totals. `DESeq()` recognizes
+these pre-existing factors and uses them for model fitting. After injection, do
+not call `estimateSizeFactors()` or assign a `normalizationFactors(dds)` matrix,
+because those operations would replace or override the IRS normalization.
 
 ### edgeR
 
