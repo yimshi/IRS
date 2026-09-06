@@ -16,8 +16,14 @@ A list containing \code{input_data} and recommended native arguments.
 }
 \description{
 MaAsLin2 should be called with \code{normalization = "NONE"} and, for the
-currently validated integration, \code{analysis_method = "LM"}. Because current
-MaAsLin2 releases filter before their internal normalization step, non-zero
-abundance or variance thresholds can have different semantics when external
-normalized input is supplied.
+currently validated integration, \code{analysis_method = "LM"}. Keep both
+returned arguments unchanged: selecting TSS, CLR, CSS, or TMM would
+normalize the IRS values a second time, and the count-model options are not
+validated for the non-integer IRS-normalized table. MaAsLin2 filters features
+before its normalization step, so positive \code{min_abundance} or \code{min_variance}
+thresholds are evaluated on the IRS-normalized scale. To filter on the raw
+count scale, filter the count matrix before fitting IRS and preparing the
+MaAsLin2 input, then set those internal thresholds to zero. A downstream
+transformation such as \code{transform = "LOG"} may still be used with the LM;
+it is not an additional normalization step.
 }

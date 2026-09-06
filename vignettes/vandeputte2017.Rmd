@@ -125,6 +125,11 @@ head(
 )
 ```
 
+`irs_wilcox()` takes the original count matrix and performs IRS normalization
+internally. It is an unadjusted two-group analysis; use a model-based adapter
+when the study design requires covariate adjustment, paired or repeated
+observations, random effects, or permutation strata.
+
 ```{r discovery-count}
 irs_called <- irs_result$taxon[irs_result$p_adjusted < 0.05]
 length(irs_called)
@@ -146,6 +151,11 @@ deseq2_result <- DESeq2::results(
   contrast = c("group", "CD", "Control")
 )
 ```
+
+`inject_deseq2()` preserves the integer counts and supplies IRS size factors.
+Continue directly to `DESeq()`, which uses the pre-existing factors. Do not call
+`estimateSizeFactors()` afterward or assign a `normalizationFactors(dds)`
+matrix, because those operations would replace or override IRS normalization.
 
 Other supported DAA packages use the same `fit`; see
 `vignette("downstream-daa", package = "IRS")` for complete adapter examples.

@@ -31,5 +31,9 @@ metadata column name when \code{metadata} is supplied.}
 A data frame with taxon-wise statistics and adjusted p-values.
 }
 \description{
-Taxon-wise Wilcoxon tests after IRS normalization
+Supply original counts; this function applies IRS normalization internally.
+It implements an unadjusted two-group analysis and does not accommodate
+covariates, paired or repeated observations, random effects, or permutation
+strata. Use a downstream model adapter when those design features are
+required.
 }

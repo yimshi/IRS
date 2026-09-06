@@ -19,5 +19,11 @@ The modified \code{DGEList}.
 \description{
 Sets edgeR normalization factors so each effective library size is a common
 multiple of the IRS reference total. Original integer counts and native
-edgeR model fitting are retained.
+edgeR model fitting are retained. Complete feature filtering before
+injection, especially when subsetting a \code{DGEList} with
+\code{keep.lib.sizes = FALSE}. After injection, pass the returned object directly
+to dispersion estimation and model fitting. Do not call
+\code{edgeR::calcNormFactors()} or \code{edgeR::normLibSizes()}, reset the library
+sizes, or supply a user-defined offset, because those operations replace or
+override the IRS effective library sizes.
 }

@@ -16,5 +16,11 @@ A list containing a samples-by-taxa OTU table and the native LDM
 arguments required to avoid a second normalization step.
 }
 \description{
-Prepare IRS-normalized input for the frequency-scale LDM
+Pass all three returned LDM arguments unchanged. In particular,
+\code{scale.otu.table = TRUE} would row-normalize the IRS values a second time.
+The validated integration is the frequency-scale analysis
+(\code{freq.scale.only = TRUE}, \code{comp.anal = FALSE}); the arcsine-root omnibus and
+CLR compositional branches are not compatible with this prepared table.
+With LDM version 6.0.1, use \code{n.perm.max >= 1000} because its internal
+permutation-block size is 1000.
 }

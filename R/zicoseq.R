@@ -96,6 +96,15 @@
 #' functions, stratified permutation, and ZicoSeq-style multiplicity
 #' adjustment are retained.
 #'
+#' Supply the original integer count matrix rather than output from
+#' [normalized_counts()]. Use this wrapper in place of a subsequent call to
+#' `GUniFrac::ZicoSeq()`: native ZicoSeq reference-selection controls are not
+#' used because IRS supplies a fixed set. The original-count reference totals
+#' remain fixed even when ZicoSeq later filters or winsorizes tested features.
+#' The default `zero_ref_action = "error"` preserves the IRS denominator
+#' definition; the fallback option changes zero denominators and is intended
+#' only for an explicitly reported sensitivity analysis.
+#'
 #' This function is derived from `GUniFrac::ZicoSeq()` version 1.9 under GPL-3.
 #'
 #' @param meta.dat Sample metadata with samples in rows.

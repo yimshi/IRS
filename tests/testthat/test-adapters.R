@@ -31,6 +31,9 @@ test_that("edgeR effective library sizes are proportional to IRS totals", {
   data <- make_irs_test_data()
   fit <- make_irs_test_fit(data)
   y <- edgeR::DGEList(data$counts)
+  design <- stats::model.matrix(~ group, data$metadata)
+  keep <- edgeR::filterByExpr(y, design = design)
+  y <- y[keep, , keep.lib.sizes = FALSE]
   original <- y$counts
   y <- inject_edger(y, fit)
   effective <- y$samples$lib.size * y$samples$norm.factors
@@ -48,10 +51,13 @@ test_that("matrix and reference-set adapters preserve orientation and names", {
   expect_identical(rownames(m2$input_data), colnames(data$counts))
   expect_identical(colnames(m2$input_data), rownames(data$counts))
   expect_identical(m2$normalization, "NONE")
+  expect_identical(m2$analysis_method, "LM")
 
   ldm <- prepare_ldm(fit, data$counts)
   expect_false(ldm$scale.otu.table)
   expect_true(ldm$freq.scale.only)
+  expect_false(ldm$comp.anal)
+  expect_false(all(abs(rowSums(ldm$otu_table) - 1) < 1e-12))
 
   dacomp_ref <- reference_for_dacomp(fit, t(data$counts))
   expect_identical(
@@ -60,6 +66,13 @@ test_that("matrix and reference-set adapters preserve orientation and names", {
 
   aldex_ref <- denom_for_aldex2(fit, data$counts)
   expect_identical(rownames(data$counts)[unname(aldex_ref)], reference_taxa(fit))
+
+  reads_with_zero <- rbind(all_zero = 0, data$counts)
+  shifted_aldex_ref <- denom_for_aldex2(fit, reads_with_zero)
+  kept_names <- rownames(reads_with_zero)[rowSums(reads_with_zero) > 0]
+  expect_identical(
+    kept_names[unname(shifted_aldex_ref)], reference_taxa(fit)
+  )
 })
 
 test_that("IRS Wilcoxon returns named adjusted results", {
@@ -72,4 +85,10 @@ test_that("IRS Wilcoxon returns named adjusted results", {
   expect_identical(result$taxon, rownames(data$counts))
   expect_true(all(result$p_value >= 0 & result$p_value <= 1))
   expect_true(all(result$p_adjusted >= 0 & result$p_adjusted <= 1))
+
+  three_groups <- rep(c("a", "b", "c"), length.out = ncol(data$counts))
+  expect_error(
+    irs_wilcox(fit, data$counts, group = three_groups),
+    "exactly two groups"
+  )
 })

@@ -19,4 +19,11 @@ denominator rather than the IRS reference sum.
 \description{
 ALDEx2 removes all-zero features before interpreting numeric denominator
 indices. This helper performs the same filtering before matching IRS taxa.
+Supply the original integer count matrix, not IRS-normalized values, and call
+the helper on the exact matrix passed as \code{reads} to \code{ALDEx2::aldex.clr()} or
+\code{ALDEx2::aldex()}. Filtering or reordering taxa after obtaining the numeric
+indices invalidates them. This is a reference-set integration: ALDEx2 uses
+the selected taxa in its geometric-mean CLR denominator and retains its own
+Monte Carlo sampling and tests; it does not use the IRS reference-sum
+normalization.
 }

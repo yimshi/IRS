@@ -16,5 +16,13 @@ Integer reference-taxon column indices. This is a reference-set
 integration; DACOMP retains its own normalization and testing definition.
 }
 \description{
-Return IRS reference indices for DACOMP
+Supply the original integer count matrix, not IRS-normalized values, and call
+this helper on the exact matrix passed as \code{X} to \code{dacomp::dacomp.test()}.
+Filtering or reordering taxa after obtaining the numeric indices invalidates
+them. This helper replaces DACOMP reference selection only; DACOMP retains
+its own rarefaction and testing definition. Applying
+\code{dacomp::dacomp.validate_references()} afterward further refines the IRS set
+and therefore constitutes a hybrid workflow rather than a fixed-IRS-reference
+analysis. DACOMP does not test reference taxa by default; use its
+\code{Test_All = TRUE} option when results for every taxon are required.
 }

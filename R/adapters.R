@@ -69,7 +69,13 @@ inject_deseq2 <- function(dds, fit, overwrite = FALSE) {
 #'
 #' Sets edgeR normalization factors so each effective library size is a common
 #' multiple of the IRS reference total. Original integer counts and native
-#' edgeR model fitting are retained.
+#' edgeR model fitting are retained. Complete feature filtering before
+#' injection, especially when subsetting a `DGEList` with
+#' `keep.lib.sizes = FALSE`. After injection, pass the returned object directly
+#' to dispersion estimation and model fitting. Do not call
+#' `edgeR::calcNormFactors()` or `edgeR::normLibSizes()`, reset the library
+#' sizes, or supply a user-defined offset, because those operations replace or
+#' override the IRS effective library sizes.
 #'
 #' @param y An edgeR `DGEList`.
 #' @param fit An `irs_fit` object.
@@ -112,10 +118,16 @@ inject_edger <- function(y, fit, overwrite = FALSE) {
 #' Prepare IRS-normalized input for MaAsLin2
 #'
 #' MaAsLin2 should be called with `normalization = "NONE"` and, for the
-#' currently validated integration, `analysis_method = "LM"`. Because current
-#' MaAsLin2 releases filter before their internal normalization step, non-zero
-#' abundance or variance thresholds can have different semantics when external
-#' normalized input is supplied.
+#' currently validated integration, `analysis_method = "LM"`. Keep both
+#' returned arguments unchanged: selecting TSS, CLR, CSS, or TMM would
+#' normalize the IRS values a second time, and the count-model options are not
+#' validated for the non-integer IRS-normalized table. MaAsLin2 filters features
+#' before its normalization step, so positive `min_abundance` or `min_variance`
+#' thresholds are evaluated on the IRS-normalized scale. To filter on the raw
+#' count scale, filter the count matrix before fitting IRS and preparing the
+#' MaAsLin2 input, then set those internal thresholds to zero. A downstream
+#' transformation such as `transform = "LOG"` may still be used with the LM;
+#' it is not an additional normalization step.
 #'
 #' @param fit An `irs_fit` object.
 #' @param counts Optional taxa-by-samples count matrix.
@@ -139,6 +151,16 @@ prepare_maaslin2 <- function(fit, counts = NULL) {
 
 #' Return IRS reference indices for DACOMP
 #'
+#' Supply the original integer count matrix, not IRS-normalized values, and call
+#' this helper on the exact matrix passed as `X` to `dacomp::dacomp.test()`.
+#' Filtering or reordering taxa after obtaining the numeric indices invalidates
+#' them. This helper replaces DACOMP reference selection only; DACOMP retains
+#' its own rarefaction and testing definition. Applying
+#' `dacomp::dacomp.validate_references()` afterward further refines the IRS set
+#' and therefore constitutes a hybrid workflow rather than a fixed-IRS-reference
+#' analysis. DACOMP does not test reference taxa by default; use its
+#' `Test_All = TRUE` option when results for every taxon are required.
+#'
 #' @param fit An `irs_fit` object.
 #' @param X DACOMP count matrix with samples in rows and taxa in columns.
 #'
@@ -157,6 +179,13 @@ reference_for_dacomp <- function(fit, X) {
 #'
 #' ALDEx2 removes all-zero features before interpreting numeric denominator
 #' indices. This helper performs the same filtering before matching IRS taxa.
+#' Supply the original integer count matrix, not IRS-normalized values, and call
+#' the helper on the exact matrix passed as `reads` to `ALDEx2::aldex.clr()` or
+#' `ALDEx2::aldex()`. Filtering or reordering taxa after obtaining the numeric
+#' indices invalidates them. This is a reference-set integration: ALDEx2 uses
+#' the selected taxa in its geometric-mean CLR denominator and retains its own
+#' Monte Carlo sampling and tests; it does not use the IRS reference-sum
+#' normalization.
 #'
 #' @param fit An `irs_fit` object.
 #' @param reads ALDEx2 count matrix with taxa in rows and samples in columns.
@@ -183,6 +212,14 @@ denom_for_aldex2 <- function(fit, reads) {
 
 #' Prepare IRS-normalized input for the frequency-scale LDM
 #'
+#' Pass all three returned LDM arguments unchanged. In particular,
+#' `scale.otu.table = TRUE` would row-normalize the IRS values a second time.
+#' The validated integration is the frequency-scale analysis
+#' (`freq.scale.only = TRUE`, `comp.anal = FALSE`); the arcsine-root omnibus and
+#' CLR compositional branches are not compatible with this prepared table.
+#' With LDM version 6.0.1, use `n.perm.max >= 1000` because its internal
+#' permutation-block size is 1000.
+#'
 #' @param fit An `irs_fit` object.
 #' @param counts Optional taxa-by-samples count matrix.
 #'
@@ -206,6 +243,12 @@ prepare_ldm <- function(fit, counts = NULL) {
 }
 
 #' Taxon-wise Wilcoxon tests after IRS normalization
+#'
+#' Supply original counts; this function applies IRS normalization internally.
+#' It implements an unadjusted two-group analysis and does not accommodate
+#' covariates, paired or repeated observations, random effects, or permutation
+#' strata. Use a downstream model adapter when those design features are
+#' required.
 #'
 #' @param fit An `irs_fit` object.
 #' @param counts Optional taxa-by-samples count matrix.

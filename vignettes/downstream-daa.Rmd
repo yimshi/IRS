@@ -150,6 +150,11 @@ irs_hits <- subset(irs_result, p_adjusted < 0.05)
 irs_hits[, c("taxon", "statistic", "p_adjusted")]
 ```
 
+Pass the original count matrix to `irs_wilcox()`; it applies IRS normalization
+internally. This convenience test is for an unadjusted two-group comparison.
+Use one of the model-based integrations below when covariates, paired or
+repeated observations, random effects, or permutation strata are needed.
+
 All five simulated signals are recovered in this run.
 
 ```{r truth-summary}
@@ -219,6 +224,8 @@ because those operations would replace or override the IRS normalization.
 ```{r edger, eval=FALSE}
 design <- model.matrix(~ group, metadata)
 y <- edgeR::DGEList(counts)
+keep <- edgeR::filterByExpr(y, design = design)
+y <- y[keep, , keep.lib.sizes = FALSE]
 y <- inject_edger(y, fit)
 y <- edgeR::estimateDisp(y, design, robust = TRUE)
 ql_fit <- edgeR::glmQLFit(y, design, robust = TRUE)
@@ -226,7 +233,11 @@ edger_result <- edgeR::glmQLFTest(ql_fit, coef = "groupcase")
 ```
 
 The count matrix remains unchanged, and edgeR uses effective library sizes
-derived from the IRS reference totals.
+derived from the IRS reference totals. Perform `filterByExpr()` and any
+`keep.lib.sizes = FALSE` subsetting before `inject_edger()`. After injection,
+do not call `calcNormFactors()` or `normLibSizes()`, reset library sizes, or
+supply a custom offset; each would replace or override the IRS effective
+library sizes. Continue directly with dispersion estimation and model fitting.
 
 ### MaAsLin2
 
@@ -239,12 +250,22 @@ maaslin2_result <- Maaslin2::Maaslin2(
   output = "maaslin2_irs",
   normalization = m2$normalization,
   analysis_method = m2$analysis_method,
+  min_abundance = 0,
+  min_prevalence = 0,
+  min_variance = 0,
   fixed_effects = "group"
 )
 ```
 
 The helper returns samples in rows and sets MaAsLin2 to use the supplied
-normalized values with its linear-model workflow.
+normalized values with its linear-model workflow. Keep
+`normalization = "NONE"` and `analysis_method = "LM"`: another MaAsLin2
+normalization would overwrite the IRS scale, while the count-model options are
+not validated for this non-integer table. MaAsLin2 applies its abundance and
+variance filters before normalization, so their thresholds otherwise act on
+the IRS-normalized scale. To filter on raw counts, do so before `fit_irs()` and
+`prepare_maaslin2()`, and pass the same filtered matrix to both. A transformation
+such as `transform = "LOG"` may still be used with the LM.
 
 ### ZicoSeq
 
@@ -262,22 +283,40 @@ zicoseq_result <- zicoseq_irs(
 ```
 
 `zicoseq_irs()` runs the ZicoSeq testing workflow with the reference set chosen
-by IRS.
+by IRS. Pass the original integer counts, not `normalized_counts()`, and use
+this wrapper instead of calling `GUniFrac::ZicoSeq()` afterward. ZicoSeq's
+native reference-selection settings are replaced by the fixed IRS references;
+feature filtering, winsorization, posterior sampling, covariates, link
+functions, and permutation machinery remain available. Reference totals are
+computed from the original counts before filtering or winsorization. The
+default `zero_ref_action = "error"` keeps the IRS denominator unchanged; use
+the fallback only as an explicitly reported sensitivity analysis.
 
-### DACOMP and ALDEx2
+### DACOMP
 
-These packages accept a set of reference taxa and then apply their native
-transformations and tests.
-
-```{r reference-adapters, eval=FALSE}
-dacomp_refs <- reference_for_dacomp(fit, t(counts))
+```{r dacomp, eval=FALSE}
+dacomp_counts <- t(counts)
+dacomp_refs <- reference_for_dacomp(fit, dacomp_counts)
 dacomp_result <- dacomp::dacomp.test(
-  X = t(counts),
+  X = dacomp_counts,
   y = metadata$group,
   ind_reference_taxa = dacomp_refs,
   test = dacomp::DACOMP.TEST.NAME.WILCOXON
 )
+```
 
+Pass the original integer counts and obtain `dacomp_refs` from the exact matrix
+used as `X`; filtering or reordering its columns afterward invalidates the
+numeric indices. This adapter replaces only `dacomp.select_references()`.
+DACOMP retains its own rarefaction and testing definition, so this is not IRS
+reference-sum normalization. Running `dacomp.validate_references()` afterward
+would create a hybrid, DACOMP-refined reference set. DACOMP leaves reference
+taxa untested by default; add `Test_All = TRUE` to `dacomp.test()` when results
+for every taxon are required.
+
+### ALDEx2
+
+```{r aldex2, eval=FALSE}
 aldex_refs <- denom_for_aldex2(fit, counts)
 aldex_clr <- ALDEx2::aldex.clr(
   reads = counts,
@@ -286,6 +325,13 @@ aldex_clr <- ALDEx2::aldex.clr(
 )
 aldex_result <- ALDEx2::aldex.ttest(aldex_clr)
 ```
+
+Call `denom_for_aldex2()` on the exact raw integer count matrix supplied to
+`aldex.clr()` or `aldex()`; filtering or reordering rows afterward invalidates
+the numeric indices. The helper accounts for ALDEx2's removal of all-zero
+features. This is a reference-set integration: the IRS taxa define ALDEx2's
+geometric-mean CLR denominator, while ALDEx2 retains its Monte Carlo sampling
+and tests. It does not use IRS reference-sum normalization.
 
 ### LDM
 
@@ -304,6 +350,11 @@ ldm_result <- LDM::ldm(
 ```
 
 The LDM helper prepares IRS-normalized values for the frequency-scale branch.
+Pass all three returned flags unchanged. Setting `scale.otu.table = TRUE` would
+row-normalize the table again, and the arcsine-root omnibus and CLR
+compositional branches should not be run on this prepared table. With LDM
+version 6.0.1, use `n.perm.max >= 1000` because its internal permutation-block
+size is 1000.
 
 ## A few practical checks
 
